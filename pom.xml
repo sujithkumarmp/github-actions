@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>17</java.version>
-        <karate.version>1.4.1</karate.version>
+        <karate.version>1.5.2</karate.version>
     </properties>
 
     <dependencies>
@@ -35,7 +35,7 @@
         </dependency>
 
         <dependency>
-            <groupId>com.intuit.karate</groupId>
+            <groupId>io.karatelabs</groupId>
             <artifactId>karate-junit5</artifactId>
             <version>${karate.version}</version>
             <scope>test</scope>
