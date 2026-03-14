@@ -72,11 +72,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: maven
 
       - name: Download JAR artifact
         uses: actions/download-artifact@v5
@@ -86,11 +90,55 @@ jobs:
       - name: Verify JAR exists
         run: ls -la *.jar
 
-      - name: Smoke test - start app and check health
+      - name: Start application
         run: |
           java -jar demo-0.0.1-SNAPSHOT.jar &
-          sleep 15
-          curl -f http://localhost:8080 || exit 1
-          curl -f http://localhost:8080/hello || exit 1
-          echo "Smoke test passed!"
-          kill %1
+          echo "Waiting for app to start..."
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8080 > /dev/null 2>&1; then
+              echo "App is ready!"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run Karate tests
+        run: mvn test -Dtest="com.example.demo.karate.HelloKarateTest" -Dkarate.base.url=http://localhost:8080 -B
+
+      - name: Publish Karate Test Summary
+        if: always()
+        run: |
+          echo "## Karate Test Results :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "target/karate-reports" ]; then
+            echo "Karate HTML report generated in target/karate-reports/" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -d "target/surefire-reports" ]; then
+            total=0; passed=0; failed=0; errors=0
+            for file in target/surefire-reports/TEST-*.xml; do
+              if [ -f "$file" ]; then
+                t=$(grep -oP 'tests="\K[0-9]+' "$file" | head -1)
+                f=$(grep -oP 'failures="\K[0-9]+' "$file" | head -1)
+                e=$(grep -oP 'errors="\K[0-9]+' "$file" | head -1)
+                total=$((total + t)); failed=$((failed + f)); errors=$((errors + e))
+              fi
+            done
+            passed=$((total - failed - errors))
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :white_check_mark: Passed | $passed |" >> $GITHUB_STEP_SUMMARY
+            echo "| :x: Failed | $failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$total** |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Karate reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: karate-reports
+          path: target/karate-reports/
+          retention-days: 14
+
+      - name: Stop application
+        if: always()
+        run: kill $(lsof -t -i:8080) 2>/dev/null || true

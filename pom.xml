@@ -19,6 +19,7 @@
 
     <properties>
         <java.version>17</java.version>
+        <karate.version>1.4.1</karate.version>
     </properties>
 
     <dependencies>
@@ -30,6 +31,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.karatelabs</groupId>
+            <artifactId>karate-junit5</artifactId>
+            <version>${karate.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
