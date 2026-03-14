@@ -103,7 +103,7 @@ jobs:
           done
 
       - name: Run Karate tests
-        run: mvn test -Dtest="com.example.demo.karate.HelloKarateTest" -Dkarate.base.url=http://localhost:8080 -B
+        run: mvn test -Pkarate -Dkarate.base.url=http://localhost:8080 -B
 
       - name: Publish Karate Test Summary
         if: always()
