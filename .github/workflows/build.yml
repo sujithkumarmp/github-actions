@@ -1,0 +1,72 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B clean package
+
+      - name: Test Report Summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: JUnit Test Results
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+
+      - name: Publish Test Summary
+        if: always()
+        run: |
+          echo "## Test Results :test_tube:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "target/surefire-reports" ]; then
+            total=0
+            passed=0
+            failed=0
+            errors=0
+            for file in target/surefire-reports/TEST-*.xml; do
+              if [ -f "$file" ]; then
+                t=$(grep -oP 'tests="\K[0-9]+' "$file" | head -1)
+                f=$(grep -oP 'failures="\K[0-9]+' "$file" | head -1)
+                e=$(grep -oP 'errors="\K[0-9]+' "$file" | head -1)
+                total=$((total + t))
+                failed=$((failed + f))
+                errors=$((errors + e))
+              fi
+            done
+            passed=$((total - failed - errors))
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :white_check_mark: Passed | $passed |" >> $GITHUB_STEP_SUMMARY
+            echo "| :x: Failed | $failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| :warning: Errors | $errors |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$total** |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":warning: No test reports found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload JAR artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/*.jar
+          retention-days: 14
