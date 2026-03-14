@@ -116,69 +116,65 @@ jobs:
           echo "## Karate Test Results :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Find karate reports in either location
-          KARATE_DIR=""
-          if [ -d "target/karate-reports" ]; then
-            KARATE_DIR="target/karate-reports"
-          fi
+          KARATE_DIR="target/karate-reports"
 
-          if [ -n "$KARATE_DIR" ]; then
-            echo "Karate HTML report generated — download the **karate-reports** artifact to view." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
-            # Parse karate-summary.json if available
+          if [ -d "$KARATE_DIR" ]; then
+            # Parse karate-summary-json.txt for overview
             SUMMARY_JSON="$KARATE_DIR/karate-summary-json.txt"
             if [ -f "$SUMMARY_JSON" ]; then
               features=$(grep -oP '"featuresPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
               featuresFailed=$(grep -oP '"featuresFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
               scenarios=$(grep -oP '"scenariosPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
               scenariosFailed=$(grep -oP '"scenariosFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
-              echo "### Features" >> $GITHUB_STEP_SUMMARY
-              echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-              echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-              echo "| :white_check_mark: Passed | $features |" >> $GITHUB_STEP_SUMMARY
-              echo "| :x: Failed | $featuresFailed |" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Scenarios" >> $GITHUB_STEP_SUMMARY
-              echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-              echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-              echo "| :white_check_mark: Passed | $scenarios |" >> $GITHUB_STEP_SUMMARY
-              echo "| :x: Failed | $scenariosFailed |" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
+              elapsed=$(grep -oP '"elapsedTime"\s*:\s*\K[0-9.]+' "$SUMMARY_JSON" || echo "0")
+              elapsed_sec=$(awk "BEGIN {printf \"%.2f\", $elapsed/1000}")
 
-          # Fallback to surefire reports
-          if [ -d "target/surefire-reports" ]; then
+              echo "### Overview" >> $GITHUB_STEP_SUMMARY
+              echo "| Metric | Passed | Failed |" >> $GITHUB_STEP_SUMMARY
+              echo "|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+              echo "| Features | :white_check_mark: $features | :x: $featuresFailed |" >> $GITHUB_STEP_SUMMARY
+              echo "| Scenarios | :white_check_mark: $scenarios | :x: $scenariosFailed |" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "> Elapsed: ${elapsed_sec}s" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            # Inline each feature result
+            echo "### Feature Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### JUnit Summary" >> $GITHUB_STEP_SUMMARY
-            total=0; passed=0; failed=0; errors=0
-            for file in target/surefire-reports/TEST-*.xml; do
-              if [ -f "$file" ]; then
-                t=$(grep -oP 'tests="\K[0-9]+' "$file" | head -1)
-                f=$(grep -oP 'failures="\K[0-9]+' "$file" | head -1)
-                e=$(grep -oP 'errors="\K[0-9]+' "$file" | head -1)
-                total=$((total + t)); failed=$((failed + f)); errors=$((errors + e))
+            for json_file in "$KARATE_DIR"/*.karate-json.txt; do
+              if [ -f "$json_file" ]; then
+                feature_name=$(grep -oP '"name"\s*:\s*"\K[^"]+' "$json_file" | head -1)
+                echo "<details>" >> $GITHUB_STEP_SUMMARY
+                echo "<summary><strong>$feature_name</strong></summary>" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "| Scenario | Status | Duration |" >> $GITHUB_STEP_SUMMARY
+                echo "|----------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+
+                # Parse each scenario from the feature JSON
+                grep -oP '"scenarioResults"\s*:\s*\[\K[^\]]+' "$json_file" | tr '}' '\n' | while read -r line; do
+                  sc_name=$(echo "$line" | grep -oP '"name"\s*:\s*"\K[^"]+' || true)
+                  sc_failed=$(echo "$line" | grep -oP '"failed"\s*:\s*\K\w+' || true)
+                  sc_duration=$(echo "$line" | grep -oP '"durationMillis"\s*:\s*\K[0-9.]+' || true)
+                  if [ -n "$sc_name" ]; then
+                    if [ "$sc_failed" = "true" ]; then
+                      status=":x: FAIL"
+                    else
+                      status=":white_check_mark: PASS"
+                    fi
+                    duration_sec=$(awk "BEGIN {printf \"%.2f\", ${sc_duration:-0}/1000}")
+                    echo "| $sc_name | $status | ${duration_sec}s |" >> $GITHUB_STEP_SUMMARY
+                  fi
+                done
+
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "</details>" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
               fi
             done
-            passed=$((total - failed - errors))
-            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| :white_check_mark: Passed | $passed |" >> $GITHUB_STEP_SUMMARY
-            echo "| :x: Failed | $failed |" >> $GITHUB_STEP_SUMMARY
-            echo "| :warning: Errors | $errors |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$total** |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":warning: No Karate reports found in target/karate-reports/" >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: Upload Karate reports
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: karate-reports
-          path: |
-            target/karate-reports/
-            target/surefire-reports/
-          retention-days: 14
-          if-no-files-found: ignore
 
       - name: Stop application
         if: always()
