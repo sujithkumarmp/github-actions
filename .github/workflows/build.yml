@@ -115,10 +115,42 @@ jobs:
         run: |
           echo "## Karate Test Results :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find karate reports in either location
+          KARATE_DIR=""
           if [ -d "target/karate-reports" ]; then
-            echo "Karate HTML report generated in target/karate-reports/" >> $GITHUB_STEP_SUMMARY
+            KARATE_DIR="target/karate-reports"
           fi
+
+          if [ -n "$KARATE_DIR" ]; then
+            echo "Karate HTML report generated — download the **karate-reports** artifact to view." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Parse karate-summary.json if available
+            SUMMARY_JSON="$KARATE_DIR/karate-summary-json.txt"
+            if [ -f "$SUMMARY_JSON" ]; then
+              features=$(grep -oP '"featuresPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
+              featuresFailed=$(grep -oP '"featuresFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
+              scenarios=$(grep -oP '"scenariosPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
+              scenariosFailed=$(grep -oP '"scenariosFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
+              echo "### Features" >> $GITHUB_STEP_SUMMARY
+              echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+              echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+              echo "| :white_check_mark: Passed | $features |" >> $GITHUB_STEP_SUMMARY
+              echo "| :x: Failed | $featuresFailed |" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Scenarios" >> $GITHUB_STEP_SUMMARY
+              echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+              echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+              echo "| :white_check_mark: Passed | $scenarios |" >> $GITHUB_STEP_SUMMARY
+              echo "| :x: Failed | $scenariosFailed |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # Fallback to surefire reports
           if [ -d "target/surefire-reports" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### JUnit Summary" >> $GITHUB_STEP_SUMMARY
             total=0; passed=0; failed=0; errors=0
             for file in target/surefire-reports/TEST-*.xml; do
               if [ -f "$file" ]; then
@@ -133,6 +165,7 @@ jobs:
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
             echo "| :white_check_mark: Passed | $passed |" >> $GITHUB_STEP_SUMMARY
             echo "| :x: Failed | $failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| :warning: Errors | $errors |" >> $GITHUB_STEP_SUMMARY
             echo "| **Total** | **$total** |" >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -141,7 +174,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: karate-reports
-          path: target/karate-reports/
+          path: |
+            target/karate-reports/
+            target/surefire-reports/
           retention-days: 14
           if-no-files-found: ignore
 
