@@ -113,68 +113,68 @@ jobs:
       - name: Publish Karate Test Summary
         if: always()
         run: |
-          echo "## Karate Test Results :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 << 'EOF'
+          import json, glob, os
 
-          KARATE_DIR="target/karate-reports"
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null")
 
-          if [ -d "$KARATE_DIR" ]; then
-            # Parse karate-summary-json.txt for overview
-            SUMMARY_JSON="$KARATE_DIR/karate-summary-json.txt"
-            if [ -f "$SUMMARY_JSON" ]; then
-              features=$(grep -oP '"featuresPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
-              featuresFailed=$(grep -oP '"featuresFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
-              scenarios=$(grep -oP '"scenariosPassed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
-              scenariosFailed=$(grep -oP '"scenariosFailed"\s*:\s*\K[0-9]+' "$SUMMARY_JSON" || echo "0")
-              elapsed=$(grep -oP '"elapsedTime"\s*:\s*\K[0-9.]+' "$SUMMARY_JSON" || echo "0")
-              elapsed_sec=$(awk "BEGIN {printf \"%.2f\", $elapsed/1000}")
+          with open(summary_file, "a") as out:
+              out.write("## Karate Test Results :rocket:\n\n")
 
-              echo "### Overview" >> $GITHUB_STEP_SUMMARY
-              echo "| Metric | Passed | Failed |" >> $GITHUB_STEP_SUMMARY
-              echo "|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-              echo "| Features | :white_check_mark: $features | :x: $featuresFailed |" >> $GITHUB_STEP_SUMMARY
-              echo "| Scenarios | :white_check_mark: $scenarios | :x: $scenariosFailed |" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "> Elapsed: ${elapsed_sec}s" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            fi
+              karate_dir = "target/karate-reports"
+              if not os.path.isdir(karate_dir):
+                  out.write(":warning: No Karate reports found.\n")
+                  exit(0)
 
-            # Inline each feature result
-            echo "### Feature Details" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            for json_file in "$KARATE_DIR"/*.karate-json.txt; do
-              if [ -f "$json_file" ]; then
-                feature_name=$(grep -oP '"name"\s*:\s*"\K[^"]+' "$json_file" | head -1)
-                echo "<details>" >> $GITHUB_STEP_SUMMARY
-                echo "<summary><strong>$feature_name</strong></summary>" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "| Scenario | Status | Duration |" >> $GITHUB_STEP_SUMMARY
-                echo "|----------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+              # Overview from summary JSON
+              summary_json = os.path.join(karate_dir, "karate-summary-json.txt")
+              if os.path.isfile(summary_json):
+                  with open(summary_json) as f:
+                      data = json.load(f)
+                  fp = data.get("featuresPassed", 0)
+                  ff = data.get("featuresFailed", 0)
+                  sp = data.get("scenariosPassed", 0)
+                  sf = data.get("scenariosFailed", 0)
+                  elapsed = data.get("elapsedTime", 0) / 1000
 
-                # Parse each scenario from the feature JSON
-                grep -oP '"scenarioResults"\s*:\s*\[\K[^\]]+' "$json_file" | tr '}' '\n' | while read -r line; do
-                  sc_name=$(echo "$line" | grep -oP '"name"\s*:\s*"\K[^"]+' || true)
-                  sc_failed=$(echo "$line" | grep -oP '"failed"\s*:\s*\K\w+' || true)
-                  sc_duration=$(echo "$line" | grep -oP '"durationMillis"\s*:\s*\K[0-9.]+' || true)
-                  if [ -n "$sc_name" ]; then
-                    if [ "$sc_failed" = "true" ]; then
-                      status=":x: FAIL"
-                    else
-                      status=":white_check_mark: PASS"
-                    fi
-                    duration_sec=$(awk "BEGIN {printf \"%.2f\", ${sc_duration:-0}/1000}")
-                    echo "| $sc_name | $status | ${duration_sec}s |" >> $GITHUB_STEP_SUMMARY
-                  fi
-                done
+                  out.write("### Overview\n")
+                  out.write("| Metric | Passed | Failed |\n")
+                  out.write("|--------|--------|--------|\n")
+                  out.write(f"| Features | :white_check_mark: {fp} | :x: {ff} |\n")
+                  out.write(f"| Scenarios | :white_check_mark: {sp} | :x: {sf} |\n\n")
+                  out.write(f"> Elapsed: {elapsed:.2f}s\n\n")
 
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "</details>" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-          else
-            echo ":warning: No Karate reports found in target/karate-reports/" >> $GITHUB_STEP_SUMMARY
-          fi
+              # Feature details from individual JSON files
+              out.write("### Feature Details\n\n")
+              for json_file in sorted(glob.glob(os.path.join(karate_dir, "*.karate-json.txt"))):
+                  with open(json_file) as f:
+                      feature = json.load(f)
+
+                  name = feature.get("name", os.path.basename(json_file))
+                  scenarios = feature.get("scenarioResults", [])
+                  passed = sum(1 for s in scenarios if not s.get("failed", False))
+                  failed = sum(1 for s in scenarios if s.get("failed", False))
+                  icon = ":white_check_mark:" if failed == 0 else ":x:"
+
+                  out.write(f"<details>\n<summary>{icon} <strong>{name}</strong> ({passed} passed, {failed} failed)</summary>\n\n")
+                  out.write("| Scenario | Status | Duration |\n")
+                  out.write("|----------|--------|----------|\n")
+
+                  for sc in scenarios:
+                      sc_name = sc.get("name", "unknown")
+                      sc_failed = sc.get("failed", False)
+                      sc_duration = sc.get("durationMillis", 0) / 1000
+                      status = ":x: FAIL" if sc_failed else ":white_check_mark: PASS"
+                      out.write(f"| {sc_name} | {status} | {sc_duration:.2f}s |\n")
+
+                      # Show error message for failed scenarios
+                      if sc_failed:
+                          error_msg = sc.get("failureMessage", "")
+                          if error_msg:
+                              out.write(f"\n> :x: **Error:** `{error_msg[:200]}`\n\n")
+
+                  out.write("\n</details>\n\n")
+          EOF
 
       - name: Stop application
         if: always()
