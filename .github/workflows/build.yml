@@ -92,18 +92,23 @@ jobs:
 
       - name: Start application
         run: |
-          java -jar demo-0.0.1-SNAPSHOT.jar &
+          nohup java -jar demo-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
           echo "Waiting for app to start..."
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8080 > /dev/null 2>&1; then
+            if curl -sf http://localhost:8080 > /dev/null 2>&1; then
               echo "App is ready!"
               break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "App failed to start. Logs:"
+              cat app.log
+              exit 1
             fi
             sleep 2
           done
 
       - name: Run Karate tests
-        run: mvn test -Pkarate -Dkarate.base.url=http://localhost:8080 -B
+        run: mvn test-compile test -Pkarate -Dkarate.base.url=http://localhost:8080 -B
 
       - name: Publish Karate Test Summary
         if: always()
@@ -138,6 +143,7 @@ jobs:
           name: karate-reports
           path: target/karate-reports/
           retention-days: 14
+          if-no-files-found: ignore
 
       - name: Stop application
         if: always()
